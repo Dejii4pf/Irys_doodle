@@ -10,25 +10,29 @@
       margin: 0;
       font-family: sans-serif;
       display: flex;
-      flex-direction: column;
-      align-items: center;
+      flex-direction: row;
+      height: 100vh;
       background-color: #f0f0f0;
     }
     h1 {
-      margin: 20px;
+      margin: 20px 0;
       font-size: 2rem;
       text-align: center;
     }
     #toolbar {
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
       gap: 10px;
-      margin-bottom: 10px;
+      padding: 10px;
+      background: #ffffff;
+      border-right: 1px solid #ccc;
       align-items: center;
+      min-width: 80px;
     }
     canvas {
       border: 1px solid #ccc;
       background-color: white;
+      margin: auto;
     }
     .sticky-note {
       position: absolute;
@@ -52,54 +56,209 @@
       width: 36px;
       height: 36px;
     }
+    #loader {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.5em;
+      background: white;
+      padding: 20px;
+      border: 2px solid #ccc;
+      border-radius: 8px;
+      z-index: 1000;
+    }
+    #onchain-link {
+      margin: 10px;
+      text-align: center;
+    }
+    .sticker {
+      position: absolute;
+      width: 100px;
+      cursor: move;
+    }
   </style>
 </head>
 <body>
-  <h1>Irys Doodle</h1>
   <div id="toolbar">
-    <button class="icon-btn" onclick="setTool('pen')" title="Pen"><span class="material-symbols-outlined">edit</span></button>
-    <button class="icon-btn" onclick="setTool('brush')" title="Brush"><span class="material-symbols-outlined">brush</span></button>
-    <button class="icon-btn" onclick="setTool('eraser')" title="Eraser"><span class="material-symbols-outlined">ink_eraser</span></button>
-    <button class="icon-btn" onclick="setTool('rect')" title="Rectangle"><span class="material-symbols-outlined">rectangle</span></button>
-    <button class="icon-btn" onclick="setTool('circle')" title="Circle"><span class="material-symbols-outlined">circle</span></button>
-    <button class="icon-btn" onclick="addStickyNote()" title="Add Sticky Note"><span class="material-symbols-outlined">sticky_note_2</span></button>
-    <input type="color" id="colorPicker" value="#000000" onchange="changeColor()">
-    <input type="color" id="bgColorPicker" value="#ffffff" onchange="changeBackground()">
+    <h1>Irys Doodle</h1>
+    <button class="icon-btn" id="penBtn" title="Pen"><span class="material-symbols-outlined">edit</span></button>
+    <button class="icon-btn" id="brushBtn" title="Brush"><span class="material-symbols-outlined">brush</span></button>
+    <button class="icon-btn" id="eraserBtn" title="Eraser"><span class="material-symbols-outlined">ink_eraser</span></button>
+    <button class="icon-btn" id="rectBtn" title="Rectangle"><span class="material-symbols-outlined">rectangle</span></button>
+    <button class="icon-btn" id="circleBtn" title="Circle"><span class="material-symbols-outlined">circle</span></button>
+    <button class="icon-btn" id="stickyNoteBtn" title="Add Sticky Note"><span class="material-symbols-outlined">sticky_note_2</span></button>
+    <button class="icon-btn" id="addStickerBtn" title="Add Sticker"><span class="material-symbols-outlined">emoji_emotions</span></button>
+    <input type="color" id="colorPicker" value="#000000">
+    <input type="color" id="bgColorPicker" value="#ffffff">
     <input type="range" id="sizeSlider" min="1" max="50" value="5" title="Tool Size">
-    <input type="file" id="uploadFile" onchange="uploadImage(event)" />
-    <button onclick="clearCanvasAndNotes()">Clear All</button>
-    <button onclick="saveCanvas()">Save</button>
+    <input type="file" id="uploadFile" />
+    <button id="clearBtn">Clear All</button>
+    <button id="saveBtn">Save</button>
+    <button id="connectWalletBtn">Connect Wallet</button>
+    <button id="saveOnChainBtn">Save On-Chain</button>
   </div>
-  <canvas id="canvas" width="800" height="600"></canvas>
 
-  <script>
+  <canvas id="canvas" width="800" height="600"></canvas>
+  <div id="loader">Saving on-chain...</div>
+  <div id="onchain-link"></div>
+
+  <script type="module">
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const sizeSlider = document.getElementById("sizeSlider");
+    const colorPicker = document.getElementById("colorPicker");
+    const bgColorPicker = document.getElementById("bgColorPicker");
+    const uploadFile = document.getElementById("uploadFile");
     let drawing = false;
     let tool = "pen";
-    let color = document.getElementById("colorPicker").value;
-    let bgColor = document.getElementById("bgColorPicker").value;
+    let color = colorPicker.value;
+    let bgColor = bgColorPicker.value;
     let startX, startY;
     let savedImageData;
 
     function setTool(t) {
       tool = t;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = parseInt(sizeSlider.value);
     }
+    window.setTool = setTool;
 
     function changeColor() {
-      color = document.getElementById("colorPicker").value;
+      color = colorPicker.value;
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
     }
 
     function changeBackground() {
-      bgColor = document.getElementById("bgColorPicker").value;
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      bgColor = bgColorPicker.value;
       ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.putImageData(imgData, 0, 0);
     }
+
+    function addStickyNote() {
+      const note = document.createElement("textarea");
+      note.className = "sticky-note";
+      note.style.left = "100px";
+      note.style.top = "100px";
+      document.body.appendChild(note);
+
+      note.addEventListener("mousedown", (e) => {
+        let offsetX = e.offsetX;
+        let offsetY = e.offsetY;
+
+        function mouseMoveHandler(e) {
+          note.style.left = e.pageX - offsetX + "px";
+          note.style.top = e.pageY - offsetY + "px";
+        }
+
+        function mouseUpHandler() {
+          document.removeEventListener("mousemove", mouseMoveHandler);
+          document.removeEventListener("mouseup", mouseUpHandler);
+        }
+
+        document.addEventListener("mousemove", mouseMoveHandler);
+        document.addEventListener("mouseup", mouseUpHandler);
+      });
+    }
+    window.addStickyNote = addStickyNote;
+
+    function addSticker() {
+      const stickers = [
+        "https://s3-us-west-2.amazonaws.com/secure.notion-static.com/1e3d8637-e1d6-4db5-9614-47b0a6b4bb34/irys-cat.png",
+        "https://s3-us-west-2.amazonaws.com/secure.notion-static.com/57e1e28f-471e-4f32-8a80-f03b1a4fc3f3/irys-logo-pink.png"
+      ];
+      const url = stickers[Math.floor(Math.random() * stickers.length)];
+      const img = document.createElement("img");
+      img.src = url;
+      img.className = "sticker";
+      img.style.left = "150px";
+      img.style.top = "150px";
+      document.body.appendChild(img);
+
+      img.addEventListener("mousedown", function (e) {
+        let offsetX = e.offsetX;
+        let offsetY = e.offsetY;
+
+        function mouseMove(e) {
+          img.style.left = (e.pageX - offsetX) + "px";
+          img.style.top = (e.pageY - offsetY) + "px";
+        }
+
+        function stopMove() {
+          document.removeEventListener("mousemove", mouseMove);
+          document.removeEventListener("mouseup", stopMove);
+        }
+
+        document.addEventListener("mousemove", mouseMove);
+        document.addEventListener("mouseup", stopMove);
+      });
+    }
+
+    document.getElementById("addStickerBtn").onclick = addSticker;
+
+    function uploadImage(event) {
+      const file = event.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        const img = new Image();
+        img.onload = function () {
+          ctx.drawImage(img, 0, 0);
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function saveCanvas() {
+      const link = document.createElement("a");
+      link.download = "irys_doodle.png";
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+
+    function clearCanvasAndNotes() {
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      document.querySelectorAll('.sticky-note').forEach(note => note.remove());
+      document.querySelectorAll('.sticker').forEach(sticker => sticker.remove());
+    }
+
+    async function connectWallet() {
+      if (!window.ethereum) {
+        alert("Install a Web3 wallet like MetaMask.");
+        return;
+      }
+
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        alert(`Connected: ${accounts[0]}`);
+      } catch (err) {
+        alert("Wallet connection failed: " + err.message);
+      }
+    }
+    window.connectWallet = connectWallet;
+
+    async function saveOnChain() {
+      alert("On-chain saving is currently disabled. Please update your backend integration.");
+    }
+    window.saveOnChain = saveOnChain;
+
+    document.getElementById("penBtn").onclick = () => setTool("pen");
+    document.getElementById("brushBtn").onclick = () => setTool("brush");
+    document.getElementById("eraserBtn").onclick = () => setTool("eraser");
+    document.getElementById("rectBtn").onclick = () => setTool("rect");
+    document.getElementById("circleBtn").onclick = () => setTool("circle");
+    document.getElementById("stickyNoteBtn").onclick = () => addStickyNote();
+    colorPicker.onchange = changeColor;
+    bgColorPicker.onchange = changeBackground;
+    uploadFile.onchange = uploadImage;
+    document.getElementById("saveBtn").onclick = saveCanvas;
+    document.getElementById("clearBtn").onclick = clearCanvasAndNotes;
+    document.getElementById("connectWalletBtn").onclick = connectWallet;
+    document.getElementById("saveOnChainBtn").onclick = saveOnChain;
 
     canvas.addEventListener("mousedown", (e) => {
       drawing = true;
@@ -116,7 +275,6 @@
       if (!drawing) return;
       const x = e.offsetX;
       const y = e.offsetY;
-
       const size = parseInt(sizeSlider.value);
 
       if (tool === "pen") {
@@ -134,7 +292,7 @@
         ctx.strokeStyle = bgColor;
         ctx.lineTo(x, y);
         ctx.stroke();
-      } else if (tool === "rect" || tool === "circle") {
+      } else if (["rect", "circle"].includes(tool)) {
         ctx.putImageData(savedImageData, 0, 0);
         drawPreviewShape(x, y);
       }
@@ -172,61 +330,6 @@
       }
     }
 
-    function addStickyNote() {
-      const note = document.createElement("textarea");
-      note.className = "sticky-note";
-      note.style.left = "100px";
-      note.style.top = "100px";
-      note.setAttribute("contenteditable", true);
-      note.style.position = "absolute";
-      document.body.appendChild(note);
-
-      note.addEventListener("mousedown", (e) => {
-        let offsetX = e.offsetX;
-        let offsetY = e.offsetY;
-
-        function mouseMoveHandler(e) {
-          note.style.left = e.pageX - offsetX + "px";
-          note.style.top = e.pageY - offsetY + "px";
-        }
-
-        function mouseUpHandler() {
-          document.removeEventListener("mousemove", mouseMoveHandler);
-          document.removeEventListener("mouseup", mouseUpHandler);
-        }
-
-        document.addEventListener("mousemove", mouseMoveHandler);
-        document.addEventListener("mouseup", mouseUpHandler);
-      });
-    }
-
-    function uploadImage(event) {
-      const file = event.target.files[0];
-      const reader = new FileReader();
-      reader.onload = function (evt) {
-        const img = new Image();
-        img.onload = function () {
-          ctx.drawImage(img, 0, 0);
-        };
-        img.src = evt.target.result;
-      };
-      reader.readAsDataURL(file);
-    }
-
-    function saveCanvas() {
-      const link = document.createElement("a");
-      link.download = "irys_doodle.png";
-      link.href = canvas.toDataURL();
-      link.click();
-    }
-
-    function clearCanvasAndNotes() {
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      document.querySelectorAll('.sticky-note').forEach(note => note.remove());
-    }
-
-    // Initialize background color
     changeBackground();
   </script>
 </body>

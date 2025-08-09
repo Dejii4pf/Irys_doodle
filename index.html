@@ -78,6 +78,27 @@
       width: 100px;
       cursor: move;
     }
+
+    @media (max-width: 600px) {
+      body {
+        flex-direction: column;
+        height: auto;
+      }
+      #toolbar {
+        flex-direction: row;
+        min-width: unset;
+        width: 100vw;
+        border-right: none;
+        border-bottom: 1px solid #ccc;
+        padding: 5px;
+        gap: 5px;
+      }
+      canvas {
+        width: 100vw !important;
+        height: 60vh !important;
+        margin: 0;
+      }
+    }
   </style>
 </head>
 <body>
@@ -88,6 +109,7 @@
     <button class="icon-btn" id="eraserBtn" title="Eraser"><span class="material-symbols-outlined">ink_eraser</span></button>
     <button class="icon-btn" id="rectBtn" title="Rectangle"><span class="material-symbols-outlined">rectangle</span></button>
     <button class="icon-btn" id="circleBtn" title="Circle"><span class="material-symbols-outlined">circle</span></button>
+    <button class="icon-btn" id="triangleBtn" title="Triangle"><span class="material-symbols-outlined">change_history</span></button>
     <button class="icon-btn" id="stickyNoteBtn" title="Add Sticky Note"><span class="material-symbols-outlined">sticky_note_2</span></button>
     <button class="icon-btn" id="addStickerBtn" title="Add Sticker"><span class="material-symbols-outlined">emoji_emotions</span></button>
     <input type="color" id="colorPicker" value="#000000">
@@ -117,6 +139,14 @@
     let bgColor = bgColorPicker.value;
     let startX, startY;
     let savedImageData;
+    let isWalletConnected = false;
+    let connectedAddress = null;
+
+    function disconnectWallet() {
+      isWalletConnected = false;
+      connectedAddress = null;
+      document.getElementById("connectWalletBtn").textContent = "Connect Wallet";
+    }
 
     function setTool(t) {
       tool = t;
@@ -139,13 +169,37 @@
     }
 
     function addStickyNote() {
-      const note = document.createElement("textarea");
+      const note = document.createElement("div");
       note.className = "sticky-note";
       note.style.left = "100px";
       note.style.top = "100px";
-      document.body.appendChild(note);
 
+      // Create textarea for the note's content
+      const textarea = document.createElement("textarea");
+      textarea.style.width = "100px";
+      textarea.style.height = "100px";
+
+      // Create delete button
+      const deleteBtn = document.createElement("button");
+      deleteBtn.textContent = "❌";
+      deleteBtn.style.position = "absolute";
+      deleteBtn.style.top = "0";
+      deleteBtn.style.right = "0";
+      deleteBtn.style.background = "red";
+      deleteBtn.style.color = "white";
+      deleteBtn.style.border = "none";
+      deleteBtn.style.cursor = "pointer";
+      deleteBtn.style.fontSize = "12px";
+
+      deleteBtn.onclick = () => note.remove();
+
+      note.appendChild(deleteBtn);
+      note.appendChild(textarea);
+      document.body.appendChild(note);
+      
+      // Dragging logic
       note.addEventListener("mousedown", (e) => {
+        if (e.target === deleteBtn) return; // Prevent drag when clicking delete
         let offsetX = e.offsetX;
         let offsetY = e.offsetY;
 
@@ -161,6 +215,28 @@
 
         document.addEventListener("mousemove", mouseMoveHandler);
         document.addEventListener("mouseup", mouseUpHandler);
+      });
+
+      // Dragging logic for mobile
+      note.addEventListener("touchstart", (e) => {
+        if (e.target === deleteBtn) return;
+        const touch = e.touches[0];
+        let offsetX = touch.clientX - note.offsetLeft;
+        let offsetY = touch.clientY - note.offsetTop;
+
+        function touchMoveHandler(e) {
+          const moveTouch = e.touches[0];
+          note.style.left = moveTouch.clientX - offsetX + "px";
+          note.style.top = moveTouch.clientY - offsetY + "px";
+        }
+
+        function touchEndHandler() {
+          document.removeEventListener("touchmove", touchMoveHandler);
+          document.removeEventListener("touchend", touchEndHandler);
+        }
+
+        document.addEventListener("touchmove", touchMoveHandler);
+        document.addEventListener("touchend", touchEndHandler);
       });
     }
     window.addStickyNote = addStickyNote;
@@ -195,6 +271,28 @@
         document.addEventListener("mousemove", mouseMove);
         document.addEventListener("mouseup", stopMove);
       });
+
+      // Dragging logic for mobile
+      note.addEventListener("touchstart", (e) => {
+        if (e.target === deleteBtn) return;
+        const touch = e.touches[0];
+        let offsetX = touch.clientX - note.offsetLeft;
+        let offsetY = touch.clientY - note.offsetTop;
+
+        function touchMoveHandler(e) {
+          const moveTouch = e.touches[0];
+          note.style.left = moveTouch.clientX - offsetX + "px";
+          note.style.top = moveTouch.clientY - offsetY + "px";
+        }
+
+        function touchEndHandler() {
+          document.removeEventListener("touchmove", touchMoveHandler);
+          document.removeEventListener("touchend", touchEndHandler);
+        }
+
+        document.addEventListener("touchmove", touchMoveHandler);
+        document.addEventListener("touchend", touchEndHandler);
+      });
     }
 
     document.getElementById("addStickerBtn").onclick = addSticker;
@@ -212,6 +310,16 @@
       reader.readAsDataURL(file);
     }
 
+    function resizeCanvas() {
+      const parent = canvas.parentElement || document.body;
+      canvas.width = Math.min(window.innerWidth - 100, 800);
+      canvas.height = Math.min(window.innerHeight - 40, 600);
+      changeBackground();
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
     function saveCanvas() {
       const link = document.createElement("a");
       link.download = "irys_doodle.png";
@@ -227,6 +335,11 @@
     }
 
     async function connectWallet() {
+      if (isWalletConnected) {
+        disconnectWallet();
+        return;
+      }
+      
       if (!window.ethereum) {
         alert("Install a Web3 wallet like MetaMask.");
         return;
@@ -234,7 +347,10 @@
 
       try {
         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        alert(`Connected: ${accounts[0]}`);
+        connectedAddress = accounts[0];
+        const shortAddr = `${connectedAddress.slice(0,6)}...${connectedAddress.slice(-4)}`;
+        document.getElementById("connectWalletBtn").textContent = shortAddr;
+        isWalletConnected = true;
       } catch (err) {
         alert("Wallet connection failed: " + err.message);
       }
@@ -251,6 +367,7 @@
     document.getElementById("eraserBtn").onclick = () => setTool("eraser");
     document.getElementById("rectBtn").onclick = () => setTool("rect");
     document.getElementById("circleBtn").onclick = () => setTool("circle");
+    document.getElementById("triangleBtn").onclick =() => setTool("triangle");
     document.getElementById("stickyNoteBtn").onclick = () => addStickyNote();
     colorPicker.onchange = changeColor;
     bgColorPicker.onchange = changeBackground;
@@ -259,6 +376,56 @@
     document.getElementById("clearBtn").onclick = clearCanvasAndNotes;
     document.getElementById("connectWalletBtn").onclick = connectWallet;
     document.getElementById("saveOnChainBtn").onclick = saveOnChain;
+
+    canvas.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      const touch = e.touches [0];
+      const rect = canvas.getBoundingClientRect();
+      drawing = true;
+      startX = touch.clientX - rect.left;
+      startY = touch.clientY - rect.top;
+      savedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      if (["pen", "brush", "eraser"].includes(tool)) {
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+      }
+    });
+
+    canvas.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      if (!drawing) return;
+      const touch = e.touches[0];
+      const rect = canvas.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      const size = parseInt(sizeSlider.value);
+
+      if (tool === "pen") {
+        ctx.lineWidth = size;
+        ctx.strokeStyle = color;
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      } else if (tool === "brush") {
+        ctx.lineWidth = size * 2;
+        ctx.strokeStyle = color;
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      } else if (tool === "eraser") {
+        ctx.lineWidth = size * 2;
+        ctx.strokeStyle = bgColor;
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      } else if (["rect", "circle", "triangle"].includes(tool)) {
+        ctx.putImageData(savedImageData, 0, 0);
+        drawPreviewShape(x, y);
+      }
+    });
+
+    canvas.addEventListener("touchend", (e) => {
+      e.preventDefault();
+      drawing = false;
+      // You may want to handle shape finalization
+    });
 
     canvas.addEventListener("mousedown", (e) => {
       drawing = true;
@@ -292,7 +459,7 @@
         ctx.strokeStyle = bgColor;
         ctx.lineTo(x, y);
         ctx.stroke();
-      } else if (["rect", "circle"].includes(tool)) {
+      } else if (["rect", "circle", "triangle"].includes(tool)) {
         ctx.putImageData(savedImageData, 0, 0);
         drawPreviewShape(x, y);
       }
@@ -314,6 +481,15 @@
         ctx.beginPath();
         ctx.arc(startX, startY, radius, 0, Math.PI * 2);
         ctx.stroke();
+      } else if (tool === "triangle") {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = parseInt (sizeSlider.value);
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        ctx.lineTo(startX - (x - startX), y);
+        ctx.closePath();
+        ctx.stroke();
       }
     });
 
@@ -326,6 +502,13 @@
       } else if (tool === "circle") {
         const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
         ctx.arc(startX, startY, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (tool === "triangle") {
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        ctx.lineTo(startX - (x - startX), y);
+        ctx.closePath();
         ctx.stroke();
       }
     }

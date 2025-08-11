@@ -15,8 +15,8 @@
       background-color: #f0f0f0;
     }
     h1 {
-      margin: 20px 0;
-      font-size: 2rem;
+      margin: 10px 0;
+      font-size: 1.5rem;
       text-align: center;
     }
     #toolbar {
@@ -28,11 +28,24 @@
       border-right: 1px solid #ccc;
       align-items: center;
       min-width: 80px;
+      flex-shrink: 0;
+    }
+    #center-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 3rem;
+      font-weight: bold;
+      color: rgba(0, 0, 0, 0.7);
+      pointer-events: none; /* so it doesn't block canvas clicks */
+      text-align: center;
     }
     canvas {
       border: 1px solid #ccc;
       background-color: white;
       margin: auto;
+      display: block;
     }
     .sticky-note {
       position: absolute;
@@ -79,29 +92,77 @@
       cursor: move;
     }
 
-    @media (max-width: 600px) {
+    /* three button that hides the toolbar when on mobile */
+    .hamburger-btn {
+      display: none;
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 5px;
+      z-index: 1100;
+      cursor: pointer;
+    }
+
+    @media (max-width: 768px) {
       body {
         flex-direction: column;
         height: auto;
       }
       #toolbar {
-        flex-direction: row;
+        display: none;
+        flex-direction: column;
         min-width: unset;
-        width: 100vw;
-        border-right: none;
-        border-bottom: 1px solid #ccc;
+        width: auto;
+        max-height: auto;
+        overflow-y: auto;
+        border: 1px solid #ccc;
         padding: 5px;
-        gap: 5px;
+        background: white;
+        position: absolute;
+        top: 50px;
+        left: 10px;
+        z-index: 1000;
+      }
+      #toolbar.show {
+        display: flex;
       }
       canvas {
-        width: 100vw !important;
-        height: 60vh !important;
-        margin: 0;
+        width: unset !important;
+        height: unset !important;
+        display: block;
+      }
+      .hamburger-btn {
+        display: block;
+      }
+    }
+
+    @media (max-width: 480px) {
+      h1 {
+        font-size: 1.2rem;
+      }
+      button.icon-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
+      }
+      #toolbar input[type="color"],
+      #toolbar input[type="range"],
+      #toolbar input[type="file"] {
+        width: 50px;
+        height: 28px;
       }
     }
   </style>
 </head>
 <body>
+  
+  <button id="hamburger" class="hamburger-btn">
+    <span class="material-symbols-outlined">menu</span>
+  </button>
+
   <div id="toolbar">
     <h1>Irys Doodle</h1>
     <button class="icon-btn" id="penBtn" title="Pen"><span class="material-symbols-outlined">edit</span></button>
@@ -122,11 +183,14 @@
     <button id="saveOnChainBtn">Save On-Chain</button>
   </div>
 
-  <canvas id="canvas" width="800" height="600"></canvas>
+    
+  <div id="center-text"></div>
+  <canvas id="canvas"></canvas>
   <div id="loader">Saving on-chain...</div>
   <div id="onchain-link"></div>
 
-  <script type="module">
+    <script src="https://cdn.jsdelivr.net/npm/@irys/sdk@latest/dist/web.bundle.min.js"></script>
+    <script type="module">
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     const sizeSlider = document.getElementById("sizeSlider");
@@ -141,6 +205,38 @@
     let savedImageData;
     let isWalletConnected = false;
     let connectedAddress = null;
+    let irys; // Declare globally
+    const saveOnChainBtn = document.getElementById("saveOnChainBtn");
+    saveOnChainBtn.disabled = true; // Disable by default
+
+    window.addEventListener("DOMContentLoaded", () => {
+      irys = new window.Irys({
+        network: "mainnet", // or "testnet"
+        token: "ethereum", // or "matic", "arbitrum", etc.
+        wallet: window.ethereum, // Use MetaMask or other Web3 wallet
+      });
+    });
+
+    // Example: Upload image data
+    async function saveOnChain() {
+      if (!irys) {
+        alert("Irys SDK is not loaded yet. Please wait a moment and try again.");
+        document.getElementById("loader").style.display = "none";
+        return;
+      }
+      document.getElementById("loader").style.display = "block";
+      try {
+        // Get canvas data as blob
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+        // Upload to Irys
+        const receipt = await irys.upload(blob, { tags: [{name: "App", value: "Irys Doodle"}] });
+        document.getElementById("onchain-link").innerHTML = 
+        `<a href="https://irys.xyz/tx/${receipt.id}" target="_blank">View On-Chain</a>`;
+      } catch (err) {
+        alert("On-chain save failed: " + err.message);
+      }
+      document.getElementById("loader").style.display = "none";
+    }
 
     function disconnectWallet() {
       isWalletConnected = false;
@@ -164,8 +260,20 @@
 
     function changeBackground() {
       bgColor = bgColorPicker.value;
+      canvas.style.backgroundColor = bgColor;
+
+      // Save current canvas as image
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // Fill with new background color
+      ctx.save();
+      ctx.globalCompositeOperation = "destination-over";
       ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
+
+      // Restore previous drawing (drawn above background)
+      ctx.putImageData(imageData, 0, 0);
     }
 
     function addStickyNote() {
@@ -247,20 +355,35 @@
         "https://s3-us-west-2.amazonaws.com/secure.notion-static.com/57e1e28f-471e-4f32-8a80-f03b1a4fc3f3/irys-logo-pink.png"
       ];
       const url = stickers[Math.floor(Math.random() * stickers.length)];
+
+      // Create wrapper div for sticker
+      const wrapper = document.createElement("div");
+      wrapper.className = "sticker";
+      wrapper.style.position = "absolute";
+      wrapper.style.left = "150px";
+      wrapper.style.top = "150px";
+      wrapper.style.width = "100px";
+      wrapper.style.height = "100px";
+      wrapper.style.cursor = "move";
+
+      // Create img element
       const img = document.createElement("img");
       img.src = url;
-      img.className = "sticker";
-      img.style.left = "150px";
-      img.style.top = "150px";
-      document.body.appendChild(img);
+      img.style.width = "100%";
+      img.style.height = "100%";
+      img.style.pointerEvents = "none"; // Prevent drag on img itself
 
-      img.addEventListener("mousedown", function (e) {
+      wrapper.appendChild(img);
+      document.body.appendChild(wrapper);
+
+      // Mouse drag logic
+      wrapper.addEventListener("mousedown", function (e) {
         let offsetX = e.offsetX;
         let offsetY = e.offsetY;
 
         function mouseMove(e) {
-          img.style.left = (e.pageX - offsetX) + "px";
-          img.style.top = (e.pageY - offsetY) + "px";
+          wrapper.style.left = (e.pageX - offsetX) + "px";
+          wrapper.style.top = (e.pageY - offsetY) + "px";
         }
 
         function stopMove() {
@@ -273,16 +396,15 @@
       });
 
       // Dragging logic for mobile
-      note.addEventListener("touchstart", (e) => {
-        if (e.target === deleteBtn) return;
+      wrapper.addEventListener("touchstart", (e) => {
         const touch = e.touches[0];
         let offsetX = touch.clientX - note.offsetLeft;
         let offsetY = touch.clientY - note.offsetTop;
 
         function touchMoveHandler(e) {
           const moveTouch = e.touches[0];
-          note.style.left = moveTouch.clientX - offsetX + "px";
-          note.style.top = moveTouch.clientY - offsetY + "px";
+          wrapper.style.left = moveTouch.clientX - offsetX + "px";
+          wrapper.style.top = moveTouch.clientY - offsetY + "px";
         }
 
         function touchEndHandler() {
@@ -301,26 +423,95 @@
       const file = event.target.files[0];
       const reader = new FileReader();
       reader.onload = function (evt) {
-        const img = new Image();
-        img.onload = function () {
-          ctx.drawImage(img, 0, 0);
-        };
+        const wrapper = document.createElement("div");
+        wrapper.style.position = "absolute";
+        wrapper.style.left = "200px";
+        wrapper.style.top = "200px";
+        wrapper.style.width = "150px";
+        wrapper.style.height = "150px";
+        wrapper.style.resize = "both";
+        wrapper.style.overflow = "auto";
+        wrapper.style.border = "1px solid #ccc";
+        wrapper.className = "sticker";
+
+        const img = document.createElement("img");
         img.src = evt.target.result;
+        img.style.width = "100%";
+        img.style.height = "100%";
+        img.style.pointerEvents = "none"; // Prevent drag on img itself
+
+        wrapper.appendChild(img);
+        document.body.appendChild(wrapper);
+
+        // Drag logic for wrapper (mouse)
+        wrapper.addEventListener("mousedown", function (e) {
+          let offsetX = e.offsetX;
+          let offsetY = e.offsetY;
+          function mouseMove(e) {
+            wrapper.style.left = (e.pageX - offsetX) + "px";
+            wrapper.style.top = (e.pageY - offsetY) + "px";
+          }
+          function stopMove() {
+            document.removeEventListener("mousemove", mouseMove);
+            document.removeEventListener("mouseup", stopMove);
+          }
+          document.addEventListener("mousemove", mouseMove);
+          document.addEventListener("mouseup", stopMove);
+        });
+        // Touch drag logic for wrapper (mobile)
+        wrapper.addEventListener("touchstart", function (e) {
+          const touch = e.touches[0];
+          let offsetX = touch.clientX - wrapper.offsetLeft;
+          let offsetY = touch.clientY - wrapper.offsetTop;
+
+          function touchMoveHandler(e) {
+            const moveTouch = e.touches[0];
+            wrapper.style.left = moveTouch.clientX - offsetX + "px";
+            wrapper.style.top = moveTouch.clientY - offsetY + "px";
+          }
+
+          function touchEndHandler() {
+            document.removeEventListener("touchmove", touchMoveHandler);
+            document.removeEventListener("touchend", touchEndHandler);
+          }
+
+          document.addEventListener("touchmove", touchMoveHandler);
+          document.addEventListener("touchend", touchEndHandler);
+        });
       };
       reader.readAsDataURL(file);
     }
 
     function resizeCanvas() {
-      const parent = canvas.parentElement || document.body;
-      canvas.width = Math.min(window.innerWidth - 100, 800);
-      canvas.height = Math.min(window.innerHeight - 40, 600);
+      const width = Math.min(window.innerWidth - 100, 800);
+      const height = Math.min(window.innerHeight - 40, 600);
+      canvas.width = width;
+      canvas.height = height;
+      canvas.style.width = width + "px";
+      canvas.style.height = height + "px";
       changeBackground();
     }
 
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas();
 
+    function flattenStickersToCanvas() {
+      const canvasRect = canvas.getBoundingClientRect();
+      document.querySelectorAll('.sticker'). forEach(wrapper => {
+        const img = wrapper.querySelector('img');
+        if (!img) return;
+        // Get wrapper and size relative to canvas
+        const wrapperRect = wrapper.getBoundingClientRect();
+        const x = wrapperRect.left - canvasRect.left;
+        const y = wrapperRect.top - canvasRect.top;
+        const width = wrapper.offsetWidth;
+        const height = wrapper.offsetHeight;
+        ctx.drawImage(img, x, y, width, height);
+      });
+    }
+
     function saveCanvas() {
+      flattenStickersToCanvas(); // <-- flatten stickers before saving
       const link = document.createElement("a");
       link.download = "irys_doodle.png";
       link.href = canvas.toDataURL();
@@ -328,6 +519,7 @@
     }
 
     function clearCanvasAndNotes() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       document.querySelectorAll('.sticky-note').forEach(note => note.remove());
@@ -356,12 +548,7 @@
       }
     }
     window.connectWallet = connectWallet;
-
-    async function saveOnChain() {
-      alert("On-chain saving is currently disabled. Please update your backend integration.");
-    }
     window.saveOnChain = saveOnChain;
-
     document.getElementById("penBtn").onclick = () => setTool("pen");
     document.getElementById("brushBtn").onclick = () => setTool("brush");
     document.getElementById("eraserBtn").onclick = () => setTool("eraser");
@@ -370,6 +557,8 @@
     document.getElementById("triangleBtn").onclick =() => setTool("triangle");
     document.getElementById("stickyNoteBtn").onclick = () => addStickyNote();
     colorPicker.onchange = changeColor;
+    colorPicker.oninput = changeColor;
+    bgColorPicker.oninput = changeBackground;
     bgColorPicker.onchange = changeBackground;
     uploadFile.onchange = uploadImage;
     document.getElementById("saveBtn").onclick = saveCanvas;
@@ -429,8 +618,9 @@
 
     canvas.addEventListener("mousedown", (e) => {
       drawing = true;
-      startX = e.offsetX;
-      startY = e.offsetY;
+      const rect = canvas.getBoundingClientRect();
+      startX = e.clientX - rect.left;
+      startY = e.clientY - rect.top;
       savedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       if (["pen", "brush", "eraser"].includes(tool)) {
         ctx.beginPath();
@@ -440,8 +630,9 @@
 
     canvas.addEventListener("mousemove", (e) => {
       if (!drawing) return;
-      const x = e.offsetX;
-      const y = e.offsetY;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
       const size = parseInt(sizeSlider.value);
 
       if (tool === "pen") {
@@ -467,8 +658,9 @@
 
     canvas.addEventListener("mouseup", (e) => {
       drawing = false;
-      const x = e.offsetX;
-      const y = e.offsetY;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
 
       if (tool === "rect") {
         ctx.strokeStyle = color;
@@ -514,6 +706,13 @@
     }
 
     changeBackground();
+
+    // Hamburger toggle
+    const hamburger = document.getElementById("hamburger");
+    const toolbar = document.getElementById("toolbar");
+    hamburger.addEventListener("click", () => {
+      toolbar.classList.toggle("show");
+    });
   </script>
 </body>
 </html>
